@@ -12,7 +12,7 @@ pub struct Node<K, V> {
 }
 
 impl<K: num_traits::PrimInt, V> Node<K, V> {
-    pub fn new(
+    pub const fn new(
         lower_value: V,
         higher_value: V,
         lower_position: K,
@@ -72,7 +72,9 @@ impl<K: num_traits::PrimInt, V> Node<K, V> {
         higher_value: V,
         higher_position: K,
     ) -> Option<Self> {
-        if lower_position != higher_position {
+        if lower_position == higher_position {
+            None
+        } else {
             let leading_zeros = (lower_position ^ higher_position).leading_zeros();
             if get_bit_u(higher_position.to_u32().unwrap_or_default(), leading_zeros) {
                 Some(Self {
@@ -95,8 +97,6 @@ impl<K: num_traits::PrimInt, V> Node<K, V> {
                     pos_diff: leading_zeros,
                 })
             }
-        } else {
-            None
         }
     }
 }
@@ -112,7 +112,7 @@ where
 }
 
 impl<K, V: Clone> AtomicInfo<K, V> {
-    pub fn new(root_key: K, root_value: V) -> Self {
+    pub const fn new(root_key: K, root_value: V) -> Self {
         Self {
             root: None,
             len: 1,

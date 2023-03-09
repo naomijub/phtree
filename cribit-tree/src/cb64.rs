@@ -9,16 +9,21 @@ pub struct CriBit64<V: Clone> {
     info: Option<AtomicInfo<u32, V>>,
 }
 
+impl<V: Clone> Default for CriBit64<V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<V: Clone> CriBit64<V> {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { info: None }
     }
 
     pub fn validate(&self) -> bool {
         if let Some(info) = self.info.clone() {
             let root_key = info.root_key;
-            info.clone()
-                .root
+            info.root
                 .map_or(false, |node| node.validate(0, root_key))
         } else {
             true
@@ -52,11 +57,11 @@ impl<V: Clone> CriBit64<V> {
             if is_parent_high {
                 parent.higher_position = new_position;
                 parent.higher_value = new_value;
-                parent.higher_node = new_sub.map(|n| Box::new(n));
+                parent.higher_node = new_sub.map(Box::new);
             } else {
                 parent.lower_position = new_position;
                 parent.lower_value = new_value;
-                parent.lower_node = new_sub.map(|n| Box::new(n));
+                parent.lower_node = new_sub.map(Box::new);
             }
         }
     }
@@ -66,7 +71,7 @@ impl<V: Clone> crate::cbkd::CritBit<V> for CriBit64<V> {
     type Key = u32;
 
     fn insert(&mut self, key: Self::Key, value: V) -> Option<V> {
-        if let None = &self.info {
+        if self.info.is_none() {
             self.info = Some(AtomicInfo::new(key, value));
             None
         } else if let Some(info) = &mut self.info {
@@ -193,177 +198,158 @@ impl<V: Clone> crate::cbkd::CritBit<V> for CriBit64<V> {
                         continue;
                     }
                     return key == node.higher_position;
-                } else {
-                    if let Some(lower_node) = node.lower_node.as_ref() {
-                        prefix = node.lower_position;
-                        node = lower_node;
-                        continue;
-                    }
-                    return key == node.lower_position;
-                };
+                }
+                if let Some(lower_node) = node.lower_node.as_ref() {
+                    prefix = node.lower_position;
+                    node = lower_node;
+                    continue;
+                }
+                return key == node.lower_position;
             }
-            false
-        } else {
-            false
         }
+        false
     }
 
     fn remove(&mut self, key: Self::Key) -> Option<V> {
-        if self.info.is_none() {
-            return None;
+        let mut info = self.info.as_mut()?;
+        let root_value = info.clone().root_value;
+        let root_node = info.clone().root;
+
+        if info.len == 1 && key == info.root_key {
+            info.len -= 1;
+            info.root_key = 0;
+            let previous_value = root_value;
+            info.root_value = None;
+            return previous_value;
         }
-        if let Some(info) = self.info.as_mut() {
-            let root_value = info.clone().root_value;
-            let root_node = info.clone().root;
 
-            if info.len == 1 && key == info.root_key {
-                info.len -= 1;
-                info.root_key = 0;
-                let previous_value = root_value;
-                info.root_value = None;
-                return previous_value;
-            }
-
-            let mut node = root_node;
-            let mut parent: Option<Node<u32, V>> = None;
-            let mut is_parent_high = false;
-            let mut prefix = info.root_key;
-            while node.clone().is_some()
-                && does_prefix_match(node.clone().unwrap().pos_diff, key, prefix)
-            {
-                //prefix matches, so now we check sub-nodes and postfixes
-                if get_bit_u(key, node.clone().unwrap().pos_diff) {
-                    if node.clone().unwrap().higher_node.is_some() {
-                        is_parent_high = true;
-                        prefix = node.clone().unwrap().higher_position;
-                        parent = node.clone();
-                        node = node.unwrap().higher_node.map(|n| *n);
-                        continue;
-                    } else {
-                        if key != node.clone().unwrap().higher_position {
-                            return None;
-                        }
-                        //match! --> delete node
-                        //replace data in parent node
-                        self.update_parent_after_remove(
-                            &mut parent,
-                            node.clone().unwrap().lower_position,
-                            node.clone().unwrap().lower_value,
-                            node.clone().unwrap().lower_node.clone().map(|n| *n),
-                            is_parent_high,
-                        );
-                        return Some(node.unwrap().higher_value);
-                    }
-                } else {
-                    if node.clone().unwrap().lower_node.is_some() {
-                        is_parent_high = false;
-                        prefix = node.clone().unwrap().lower_position;
-                        parent = node.clone();
-                        node = node.unwrap().lower_node.map(|n| *n);
-                        continue;
-                    } else {
-                        if key != node.clone().unwrap().lower_position {
-                            return None;
-                        }
-                        //match! --> delete node
-                        //replace data in parent node
-                        //for new prefixes...
-                        self.update_parent_after_remove(
-                            &mut parent,
-                            node.clone().unwrap().higher_position,
-                            node.clone().unwrap().higher_value,
-                            node.clone().unwrap().higher_node.clone().map(|n| *n),
-                            is_parent_high,
-                        );
-                        return Some(node.unwrap().lower_value);
-                    }
+        let mut node = root_node;
+        let mut parent: Option<Node<u32, V>> = None;
+        let mut is_parent_high = false;
+        let mut prefix = info.root_key;
+        while node.clone().is_some()
+            && does_prefix_match(node.clone().unwrap().pos_diff, key, prefix)
+        {
+            //prefix matches, so now we check sub-nodes and postfixes
+            if get_bit_u(key, node.clone().unwrap().pos_diff) {
+                if node.clone().unwrap().higher_node.is_some() {
+                    is_parent_high = true;
+                    prefix = node.clone().unwrap().higher_position;
+                    parent = node.clone();
+                    node = node.unwrap().higher_node.map(|n| *n);
+                    continue;
                 }
+                if key != node.clone().unwrap().higher_position {
+                    return None;
+                }
+                //match! --> delete node
+                //replace data in parent node
+                self.update_parent_after_remove(
+                    &mut parent,
+                    node.clone().unwrap().lower_position,
+                    node.clone().unwrap().lower_value,
+                    node.clone().unwrap().lower_node.map(|n| *n),
+                    is_parent_high,
+                );
+                return Some(node.unwrap().higher_value);
+            } else if node.clone().unwrap().lower_node.is_some() {
+                is_parent_high = false;
+                prefix = node.clone().unwrap().lower_position;
+                parent = node.clone();
+                node = node.unwrap().lower_node.map(|n| *n);
+                continue;
             }
+            if key != node.clone().unwrap().lower_position {
+                return None;
+            }
+            //match! --> delete node
+            //replace data in parent node
+            //for new prefixes...
+            self.update_parent_after_remove(
+                &mut parent,
+                node.clone().unwrap().higher_position,
+                node.clone().unwrap().higher_value,
+                node.clone().unwrap().higher_node.map(|n| *n),
+                is_parent_high,
+            );
+            return Some(node.unwrap().lower_value);
         }
         None
     }
 
     fn remove_kv(&mut self, key: Self::Key) -> Option<(Self::Key, V)> {
-        if self.info.is_none() {
+        let mut info = self.info.as_mut()?;
+        let root_value = info.clone().root_value;
+        let root_key = info.clone().root_key;
+        let root_node = info.clone().root;
+
+        if info.len == 1 && key == info.root_key {
+            info.len -= 1;
+            info.root_key = 0;
+            let previous_value = root_value;
+            info.root_value = None;
+            if let Some(prev) = previous_value {
+                return Some((root_key, prev));
+            }
             return None;
         }
-        if let Some(info) = self.info.as_mut() {
-            let root_value = info.clone().root_value;
-            let root_key = info.clone().root_key;
-            let root_node = info.clone().root;
 
-            if info.len == 1 && key == info.root_key {
-                info.len -= 1;
-                info.root_key = 0;
-                let previous_value = root_value;
-                info.root_value = None;
-                if let Some(prev) = previous_value {
-                    return Some((root_key, prev));
+        let mut node = root_node;
+        let mut parent: Option<Node<u32, V>> = None;
+        let mut is_parent_high = false;
+        let mut prefix = info.root_key;
+        while node.clone().is_some()
+            && does_prefix_match(node.clone().unwrap().pos_diff, key, prefix)
+        {
+            //prefix matches, so now we check sub-nodes and postfixes
+            if get_bit_u(key, node.clone().unwrap().pos_diff) {
+                if node.clone().unwrap().higher_node.is_some() {
+                    is_parent_high = true;
+                    prefix = node.clone().unwrap().higher_position;
+                    parent = node.clone();
+                    node = node.unwrap().higher_node.map(|n| *n);
+                    continue;
+                } 
+                if key != node.clone().unwrap().higher_position {
+                    return None;
                 }
+                //match! --> delete node
+                //replace data in parent node
+                self.update_parent_after_remove(
+                    &mut parent,
+                    node.clone().unwrap().lower_position,
+                    node.clone().unwrap().lower_value,
+                    node.clone().unwrap().lower_node.map(|n| *n),
+                    is_parent_high,
+                );
+                return Some((
+                    node.clone().unwrap().higher_position,
+                    node.unwrap().higher_value,
+                ));
+            } else if node.clone().unwrap().lower_node.is_some() {
+                is_parent_high = false;
+                prefix = node.clone().unwrap().lower_position;
+                parent = node.clone();
+                node = node.unwrap().lower_node.map(|n| *n);
+                continue;
+            }
+            if key != node.clone().unwrap().lower_position {
                 return None;
             }
-
-            let mut node = root_node;
-            let mut parent: Option<Node<u32, V>> = None;
-            let mut is_parent_high = false;
-            let mut prefix = info.root_key;
-            while node.clone().is_some()
-                && does_prefix_match(node.clone().unwrap().pos_diff, key, prefix)
-            {
-                //prefix matches, so now we check sub-nodes and postfixes
-                if get_bit_u(key, node.clone().unwrap().pos_diff) {
-                    if node.clone().unwrap().higher_node.is_some() {
-                        is_parent_high = true;
-                        prefix = node.clone().unwrap().higher_position;
-                        parent = node.clone();
-                        node = node.unwrap().higher_node.map(|n| *n);
-                        continue;
-                    } else {
-                        if key != node.clone().unwrap().higher_position {
-                            return None;
-                        }
-                        //match! --> delete node
-                        //replace data in parent node
-                        self.update_parent_after_remove(
-                            &mut parent,
-                            node.clone().unwrap().lower_position,
-                            node.clone().unwrap().lower_value,
-                            node.clone().unwrap().lower_node.clone().map(|n| *n),
-                            is_parent_high,
-                        );
-                        return Some((
-                            node.clone().unwrap().higher_position,
-                            node.unwrap().higher_value,
-                        ));
-                    }
-                } else {
-                    if node.clone().unwrap().lower_node.is_some() {
-                        is_parent_high = false;
-                        prefix = node.clone().unwrap().lower_position;
-                        parent = node.clone();
-                        node = node.unwrap().lower_node.map(|n| *n);
-                        continue;
-                    } else {
-                        if key != node.clone().unwrap().lower_position {
-                            return None;
-                        }
-                        //match! --> delete node
-                        //replace data in parent node
-                        //for new prefixes...
-                        self.update_parent_after_remove(
-                            &mut parent,
-                            node.clone().unwrap().higher_position,
-                            node.clone().unwrap().higher_value,
-                            node.clone().unwrap().higher_node.clone().map(|n| *n),
-                            is_parent_high,
-                        );
-                        return Some((
-                            node.clone().unwrap().lower_position,
-                            node.unwrap().lower_value,
-                        ));
-                    }
-                }
-            }
+            //match! --> delete node
+            //replace data in parent node
+            //for new prefixes...
+            self.update_parent_after_remove(
+                &mut parent,
+                node.clone().unwrap().higher_position,
+                node.clone().unwrap().higher_value,
+                node.clone().unwrap().higher_node.map(|n| *n),
+                is_parent_high,
+            );
+            return Some((
+                node.clone().unwrap().lower_position,
+                node.unwrap().lower_value,
+            ));
         }
         None
     }
@@ -373,40 +359,38 @@ impl<V: Clone> crate::cbkd::CritBit<V> for CriBit64<V> {
     }
 
     fn get(&self, key: Self::Key) -> Option<&V> {
-        if self.info.is_none() {
-            return None;
+        let info = self.info.as_ref()?;
+        if info.len == 1 && key == info.root_key {
+            return info.root_value.as_ref();
         }
-        if let Some(info) = self.info.as_ref() {
-            if info.len == 1 && key == info.root_key {
-                return info.root_value.as_ref();
-            }
-            let mut node = info.root.as_ref().unwrap();
-            let mut prefix = info.root_key;
+        let mut node = info.root.as_ref().unwrap();
+        let mut prefix = info.root_key;
 
-            while does_prefix_match(node.pos_diff, key, prefix) {
-                if get_bit_u(key, node.pos_diff) {
-                    if let Some(high_node) = node.higher_node.as_ref() {
-                        prefix = node.higher_position;
-                        node = high_node;
-                        continue;
-                    }
-                    if key == node.higher_position {
-                        return Some(&node.higher_value);
-                    }
-                } else {
-                    if let Some(lower_node) = node.lower_node.as_ref() {
-                        prefix = node.lower_position;
-                        node = lower_node;
-                        continue;
-                    }
-                    if key == node.lower_position {
-                        return Some(&node.lower_value);
-                    }
-                };
-            }
-            None
-        } else {
-            None
+        while does_prefix_match(node.pos_diff, key, prefix) {
+            if get_bit_u(key, node.pos_diff) {
+                if let Some(high_node) = node.higher_node.as_ref() {
+                    prefix = node.higher_position;
+                    node = high_node;
+                    continue;
+                }
+                if key == node.higher_position {
+                    return Some(&node.higher_value);
+                }
+            } else {
+                if let Some(lower_node) = node.lower_node.as_ref() {
+                    prefix = node.lower_position;
+                    node = lower_node;
+                    continue;
+                }
+                if key == node.lower_position {
+                    return Some(&node.lower_value);
+                }
+            };
         }
+        None
+    }
+
+    fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
