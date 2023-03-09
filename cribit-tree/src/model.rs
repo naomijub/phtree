@@ -43,10 +43,12 @@ impl<K: num_traits::PrimInt, V> Node<K, V> {
             ) {
                 return false;
             }
-            return (self.lower_node.as_ref().as_ref()).unwrap().validate(
-                self.pos_diff + 1,
-                self.lower_position.to_u32().unwrap_or_default(),
-            );
+            if let Some(lower_node) = self.lower_node.as_ref() {
+                return lower_node.validate(
+                    self.pos_diff + 1,
+                    self.lower_position.to_u32().unwrap_or_default(),
+                );
+            }
         }
         if self.higher_node.is_some() {
             if !does_prefix_match(
@@ -56,10 +58,12 @@ impl<K: num_traits::PrimInt, V> Node<K, V> {
             ) {
                 return false;
             }
-            return self.higher_node.as_ref().as_ref().unwrap().validate(
-                self.pos_diff + 1,
-                self.higher_position.to_u32().unwrap_or_default(),
-            );
+            if let Some(higher_node) = self.higher_node.as_ref() {
+                return higher_node.validate(
+                    self.pos_diff + 1,
+                    self.higher_position.to_u32().unwrap_or_default(),
+                );
+            }
         }
         true
     }

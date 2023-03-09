@@ -23,8 +23,7 @@ impl<V: Clone> CriBit64<V> {
     pub fn validate(&self) -> bool {
         if let Some(info) = self.info.clone() {
             let root_key = info.root_key;
-            info.root
-                .map_or(false, |node| node.validate(0, root_key))
+            info.root.map_or(false, |node| node.validate(0, root_key))
         } else {
             true
         }
@@ -309,7 +308,7 @@ impl<V: Clone> crate::cbkd::CritBit<V> for CriBit64<V> {
                     parent = node.clone();
                     node = node.unwrap().higher_node.map(|n| *n);
                     continue;
-                } 
+                }
                 if key != node.clone().unwrap().higher_position {
                     return None;
                 }
