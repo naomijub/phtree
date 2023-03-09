@@ -2,7 +2,7 @@
 name = "cribit-tree"
 version = "0.1.0"
 description = "Implementation of Cribit-tree"
-readme = "../README.md"
+readme = "README.md"
 documentation = "https://docs.rs/cribit-tree/"
 repository = "https://github.com/naomijub/phtree/cribit-tree"
 keywords = ["cribit", "tree", "cribit-tree"]
@@ -28,3 +28,4 @@ ron = "0.8"
 morton-encoding = "2.0.1"
 ilattice = "0.2.0"
 nalgebra = "0.32.2"
+empty-box = "0.1.1"
